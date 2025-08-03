@@ -1,0 +1,25 @@
+# Ignore test files and directories
+test/
+tests/
+__tests__/
+*.test.*
+*.spec.*
+coverage/
+
+# Ignore development files
+.env.local
+.env.development
+service-account.json
+
+# Ignore IDE files
+.vscode/
+.idea/
+
+# Ignore example and sample files
+examples/
+samples/
+docs/examples/
+
+# Ignore any PDF test files
+*.pdf
+!public/*.pdf
