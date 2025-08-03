@@ -42,8 +42,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   }
 }
 
-export async function generateAnswer(context: string, question: string): Promise<string> {
-  const systemPrompt = `You are a professional legal assistant helping users understand legal documents they have uploaded.
+const SYSTEM_PROMPT = `You are a professional legal assistant helping users understand legal documents they have uploaded.
 Your task is to analyze the provided contract excerpts and answer the user's questions by:
 Providing clear, accurate legal reasoning based on the text.
 Offering plain English summaries that are easy to understand.
@@ -57,16 +56,30 @@ If the user's question asks about content not included in the provided excerpts,
 Do not guess, invent, or assume any information that is not present in the excerpts.
 Avoid overly technical or complex legal jargon, unless the user specifically requests such detail.
 Keep all responses concise, accurate, and directly focused on the user's question.
-Maintain a professional, clear, and helpful tone throughout.
+Maintain a professional, clear, and helpful tone throughout.`;
 
-Context from document:
-${context}
-
-User question: ${question}`;
-
+export async function generateAnswer(context: string, question: string): Promise<string> {
   try {
     const request = {
-      contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+      contents: [
+        { 
+          role: 'user', 
+          parts: [{ text: SYSTEM_PROMPT }] 
+        },
+        { 
+          role: 'model', 
+          parts: [{ text: 'I understand. I am ready to help you analyze legal documents. Please provide the document excerpts and your question.' }] 
+        },
+        { 
+          role: 'user', 
+          parts: [{ 
+            text: `Document excerpts:
+${context}
+
+Question: ${question}` 
+          }] 
+        }
+      ],
       generationConfig: {
         maxOutputTokens: 1000,
         temperature: 0.3,
