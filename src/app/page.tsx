@@ -1,103 +1,266 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+import Cookies from 'js-cookie';
+import { Scale, MessageSquare, Upload, ArrowRight } from 'lucide-react';
+import PDFUpload from '../../components/PDFUpload';
+import ChatInterface from '../../components/ChatInterface';
+import NameModal from '../../components/NameModal';
+import LimitModal from '../../components/LimitModal';
+
+interface Message {
+  id: string;
+  type: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [userId, setUserId] = useState<string>('');
+  const [currentDocumentId, setCurrentDocumentId] = useState<number | null>(null);
+  const [currentFilename, setCurrentFilename] = useState<string>('');
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [limitType, setLimitType] = useState<'pdf' | 'questions'>('questions');
+  const [chatMessages, setChatMessages] = useState<Message[]>([]);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  useEffect(() => {
+    initializeApp();
+  }, []);
+
+  const initializeApp = async () => {
+    try {
+      // Initialize database and services
+      await fetch('/api/init');
+
+      // Get or create user ID
+      let storedUserId = Cookies.get('lawgic_user_id');
+      if (!storedUserId) {
+        storedUserId = uuidv4();
+        Cookies.set('lawgic_user_id', storedUserId, { expires: 365 });
+        setShowNameModal(true);
+      }
+      setUserId(storedUserId);
+
+      // Check if user exists in database
+      const userResponse = await fetch(`/api/user?userId=${storedUserId}`);
+      const userData = await userResponse.json();
+      
+      if (!userData.user) {
+        await fetch('/api/user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'create', userId: storedUserId }),
+        });
+      }
+
+      setIsInitialized(true);
+    } catch (error) {
+      console.error('App initialization error:', error);
+      setIsInitialized(true);
+    }
+  };
+
+  const handleNameSubmit = async (name: string) => {
+    try {
+      await fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'updateName', userId, name }),
+      });
+      setShowNameModal(false);
+    } catch (error) {
+      console.error('Error updating name:', error);
+    }
+  };
+
+  const handleUploadSuccess = async (documentId: number, filename: string) => {
+    setCurrentDocumentId(documentId);
+    setCurrentFilename(filename);
+    
+    // Load chat history for this document
+    try {
+      const response = await fetch(`/api/user?userId=${userId}&documentId=${documentId}`);
+      const data = await response.json();
+      
+      if (data.chatHistory) {
+        const messages: Message[] = data.chatHistory.map((msg: any) => [
+          {
+            id: `${msg.id}-q`,
+            type: 'user' as const,
+            content: msg.question,
+            timestamp: new Date(msg.created_at),
+          },
+          {
+            id: `${msg.id}-a`,
+            type: 'assistant' as const,
+            content: msg.answer,
+            timestamp: new Date(msg.created_at),
+          },
+        ]).flat();
+        
+        setChatMessages(messages);
+      }
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+    }
+  };
+
+  const handleUploadError = (error: string) => {
+    if (error.includes('limit')) {
+      setLimitType('pdf');
+      setShowLimitModal(true);
+    } else {
+      alert(error);
+    }
+  };
+
+  const handleQuestionLimitReached = () => {
+    setLimitType('questions');
+    setShowLimitModal(true);
+  };
+
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-400">Initializing LawgicAI...</p>
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white">
+      {/* Header */}
+      <header className="border-b border-gray-800 bg-gray-900/50 backdrop-blur-sm sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-3">
+              <Scale className="w-8 h-8 text-blue-500" />
+              <h1 className="text-xl font-bold">LawgicAI</h1>
+            </div>
+            {currentDocumentId && (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <MessageSquare className="w-4 h-4" />
+                <span>{currentFilename}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {!currentDocumentId ? (
+          /* Upload Section */
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                Understand Legal Documents with AI
+              </h2>
+              <p className="text-xl text-gray-300 mb-8">
+                Upload contracts, NDAs, or any legal document and ask questions in plain English
+              </p>
+              
+              <div className="flex items-center justify-center gap-8 mb-12">
+                <div className="flex items-center gap-3 text-gray-400">
+                  <Upload className="w-5 h-5 text-blue-500" />
+                  <span>Upload PDF</span>
+                </div>
+                <ArrowRight className="w-5 h-5 text-gray-600" />
+                <div className="flex items-center gap-3 text-gray-400">
+                  <MessageSquare className="w-5 h-5 text-green-500" />
+                  <span>Ask Questions</span>
+                </div>
+                <ArrowRight className="w-5 h-5 text-gray-600" />
+                <div className="flex items-center gap-3 text-gray-400">
+                  <Scale className="w-5 h-5 text-purple-500" />
+                  <span>Get Clear Answers</span>
+                </div>
+              </div>
+            </div>
+
+            <PDFUpload
+              onUploadSuccess={handleUploadSuccess}
+              onUploadError={handleUploadError}
+              userId={userId}
+            />
+
+            {/* Features */}
+            <div className="grid md:grid-cols-3 gap-6 mt-16">
+              <div className="text-center p-6">
+                <div className="w-12 h-12 bg-blue-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                  <Upload className="w-6 h-6 text-blue-400" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Smart Upload</h3>
+                <p className="text-gray-400">
+                  Automatically extracts text from PDFs, with OCR fallback for image-based documents
+                </p>
+              </div>
+              
+              <div className="text-center p-6">
+                <div className="w-12 h-12 bg-green-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                  <MessageSquare className="w-6 h-6 text-green-400" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Natural Q&A</h3>
+                <p className="text-gray-400">
+                  Ask questions in plain English and get clear, accurate explanations
+                </p>
+              </div>
+              
+              <div className="text-center p-6">
+                <div className="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                  <Scale className="w-6 h-6 text-purple-400" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Legal Expertise</h3>
+                <p className="text-gray-400">
+                  AI trained to understand legal language and provide professional insights
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Chat Section */
+          <div className="h-[calc(100vh-120px)] bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+            <div className="h-full flex flex-col">
+              <div className="bg-gray-700/50 px-6 py-4 border-b border-gray-600">
+                <h3 className="text-lg font-medium flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-blue-400" />
+                  {currentFilename}
+                </h3>
+                <p className="text-sm text-gray-400 mt-1">
+                  Ask any question about your document
+                </p>
+              </div>
+              
+              <div className="flex-1 min-h-0">
+                <ChatInterface
+                  documentId={currentDocumentId}
+                  userId={userId}
+                  onQuestionLimitReached={handleQuestionLimitReached}
+                  initialMessages={chatMessages}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+      {/* Modals */}
+      <NameModal
+        isOpen={showNameModal}
+        onClose={handleNameSubmit}
+      />
+      
+      <LimitModal
+        isOpen={showLimitModal}
+        onClose={() => setShowLimitModal(false)}
+        limitType={limitType}
+      />
     </div>
   );
 }

@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/app/api/**/route.ts": {
+      "maxDuration": 60
+    }
+  },
+  "env": {
+    "GOOGLE_APPLICATION_CREDENTIALS": "@google_service_account"
+  }
+}
